@@ -1,4 +1,5 @@
 ﻿using Confluent.Kafka;
+using Microsoft.Extensions.Options;
 
 namespace WebAPI;
 
@@ -6,11 +7,22 @@ public class KafkaConsumer : BackgroundService
 {
     private readonly ILogger<KafkaConsumer> _log;
     private readonly IConsumer<string, string> _consumer;
+    private readonly KafkaConfigOptions _options;
 
-    public KafkaConsumer(ILogger<KafkaConsumer> log, IConsumer<string, string> consumer)
+    public KafkaConsumer(ILogger<KafkaConsumer> log, IOptionsMonitor<KafkaConfigOptions> options)
     {
         _log = log;
-        _consumer = consumer;
+        _options = options.CurrentValue;
+
+        var config = new ConsumerConfig
+        {
+            BootstrapServers = _options.Bootstrap,
+            GroupId = _options.GroupId,
+            AutoOffsetReset = AutoOffsetReset.Earliest
+        };
+
+        _consumer = new ConsumerBuilder<string, string>(config).Build();
+        _consumer.Subscribe(_options.Topic);
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)

@@ -1,6 +1,5 @@
 using Confluent.Kafka;
-using System.Diagnostics;
-using System.Net;
+using Microsoft.Extensions.Options;
 using WebAPI;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -9,21 +8,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-
-const string Topic = "customers";
-const string Bootstrap = "localhost:9092";
-
-var config = new ConsumerConfig
-{
-    BootstrapServers = Bootstrap,
-    GroupId = "test_group",
-    AutoOffsetReset = AutoOffsetReset.Earliest
-};
-
-var consumer = new ConsumerBuilder<string, string>(config).Build();
-consumer.Subscribe(Topic);
-
-builder.Services.AddHostedService(sp => new KafkaConsumer(sp.GetRequiredService<ILogger<KafkaConsumer>>(), consumer));
+builder.Services.Configure<KafkaConfigOptions>(builder.Configuration.GetSection(KafkaConfigOptions.KafkaConfig));
 builder.Services.AddHostedService<KafkaConsumer>();
 
 var app = builder.Build();
@@ -37,33 +22,31 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-app.MapGet("/send-message", async (string text) =>
+app.MapGet("/send-message", async (string text, IOptionsMonitor<KafkaConfigOptions> options) =>
 {
     ProducerConfig config = new()
     {
-        BootstrapServers = Bootstrap,
+        BootstrapServers = options.CurrentValue.Bootstrap,
     };
 
     try
     {
-        using (var producer = new ProducerBuilder<string, string>(config).Build())
+        using var producer = new ProducerBuilder<string, string>(config).Build();
+        var result = await producer.ProduceAsync(options.CurrentValue.Topic, new Message<string, string>
         {
-            var result = await producer.ProduceAsync(Topic, new Message<string, string>
-            {
-                Value = text
-            });
+            Value = text
+        });
 
-            Debug.WriteLine($"Delivery Timestamp:{ result.Timestamp.UtcDateTime}");
-        }
+        Console.WriteLine($"Delivery Timestamp:{result.Timestamp.UtcDateTime}");
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"Error occured: {ex.Message}");
+        Console.WriteLine($"Error occurred: {ex.Message}");
     }
 
     return Results.NoContent();
 })
-.WithName("GetWeatherForecast")
+.WithName("SendMessage")
 .WithOpenApi();
 
 app.Run();
